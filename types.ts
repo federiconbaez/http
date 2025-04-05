@@ -1,75 +1,59 @@
 // src/lib/api-framework/types.ts
-import { CustomResponse } from "../server/response";
-import { CustomRequest } from "./request";
+import { CustomRequest } from "../http/request";
+import { CustomResponse } from "./response";
 
-// Tipos básicos
-export type ApiError = {
-  message: string;
-  statusCode: number;
-  details?: any;
-  stack?: string;
-};
-
-export type ApiResponseWithHeaders<T = any> = ApiResponse<T> & {
-  headers: Record<string, string>;
-  statusCode: number;
-  status: number;
-  setHeader: (name: string, value: string) => void;
-  send: (body: ApiResponse<T>) => void;
-  json: (body: ApiResponse<T>) => void;
-  end: () => void;
-  redirect: (url: string, statusCode?: number) => void;
-  setStatus: (statusCode: number) => void;
-  setCookie: (name: string, value: string, options?: Record<string, any>) => void;
-  clearCookie: (name: string) => void;
-  getCookie: (name: string) => string | undefined;
-  getHeader: (name: string) => string | undefined;
-  getQuery: (name: string) => string | undefined;
-  getParam: (name: string) => string | undefined;
+// Log levels
+export enum LogLevel {
+  DEBUG = 'debug',
+  INFO = 'info',
+  WARN = 'warn',
+  ERROR = 'error',
+  FATAL = 'fatal'
 }
 
-export type ApiResult<T> = {
-  success: boolean;
-  data?: T;
-  error?: string;
-  warnings?: string[];
+// Logger adapter interface
+export interface LoggerAdapter {
+  log(level: LogLevel, message: string, data?: any): void;
+  init?(options: LoggerOptions): void;
+}
+
+// Logger configuration
+export interface LoggerOptions {
+  enabled: boolean;
+  logErrorStacks?: boolean;
+  logHeaders?: boolean;
+  adapter?: string;
+  sensitiveHeaders?: string[];
+  level: LogLevel;
+  format?: 'json' | 'text';
+  redactHeaders?: string[];
+  redactQueryParams?: string[];
+  redactBodyFields?: string[];
+  destination?: 'console' | 'file' | ((message: string, level: LogLevel) => void);
+  filePath?: string;
+}
+
+/**
+ * API User interface representing an authenticated user
+ */
+export interface ApiUser {
+  id: string;
+  roles: string[];
+  permissions?: string[];
+  email?: string;
+  name?: string;
   metadata?: Record<string, any>;
-};
-
-export type ApiHandler<T = any> = (
-  request: CustomRequest,
-  context: ApiContext
-) => Promise<ApiResponse<T>>;
-
-export type ApiResponse<T = any> = CustomResponse<T> & {
-  statusCode: number;
-  body: ApiResult<T>;
-  headers: Record<string, string>;
-  status: number;
-  params: Record<string, string>;
-  param: (name: string) => string | undefined;
-  setParams: (params: Record<string, string>) => void;
-  setHeader: (name: string, value: string) => void;
-  send: (body: ApiResult<T>) => void;
-  json: (body: ApiResult<T>) => void;
-  end: () => void;
-  redirect: (url: string, statusCode?: number) => void;
-  setStatus: (statusCode: number) => void;
-  setCookie: (name: string, value: string, options?: Record<string, any>) => void;
-  clearCookie: (name: string) => void;
-  getCookie: (name: string) => string | undefined;
-  getHeader: (name: string) => string | undefined;
-  getQuery: (name: string) => string | undefined;
-  getParam: (name: string) => string | undefined;
-  getBody: () => Promise<any>;
-  getFiles: () => Promise<Record<string, any>>;
-  getIp: () => string;
 }
 
-export type ApiContext = {
+/**
+ * API Context interface containing request information
+ */
+export interface ApiContext {
   params: Record<string, string>;
   headers: Record<string, string>;
-  query: Record<string, string>;
+  response: CustomResponse;
+  request: CustomRequest;
+  query: Record<string, any>;
   body: Record<string, any>;
   files?: Record<string, any>;
   method: string;
@@ -80,49 +64,281 @@ export type ApiContext = {
   authToken?: string;
   user?: ApiUser;
   requestId: string;
-};
+}
 
-export type ApiUser = {
-  id: string;
-  roles: string[];
-};
+/**
+ * API Handler function type
+ */
+export type ApiHandler<T = any> = (
+  request: CustomRequest,
+  context: ApiContext
+) => Promise<CustomResponse<T> | T>;
 
-export type ValidationSchema<T> = {
-  validate: (data: any) => { value: T; error?: any };
-};
+/**
+ * Catch-all handler for unmatched routes
+ */
+export type CatchAllHandler = (
+  request: CustomRequest
+) => CustomResponse | Promise<CustomResponse>;
 
-export type CacheOptions = {
+/**
+ * API Response type
+ */
+export type ApiResponse<T = any> = T;
+
+/**
+ * API Result interface for standard response format
+ */
+export interface ApiResult<T> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  code?: string;
+  warnings?: string[];
+  metadata?: Record<string, any>;
+}
+
+/**
+ * Authentication configuration
+ */
+export interface AuthConfig {
+  tokenExpiration: string | number;
+  refreshTokenExpiration: string | number;
+  jwtSecret?: string;
+  refreshSecret?: string;
+  issuer: string;
+  audience: string;
+}
+
+/**
+ * Authentication options for requests
+ */
+export interface AuthOptions {
+  required?: boolean;
+  permission?: string;
+  roles?: string[];
+  permissions?: string[];
+  optional?: boolean;
+  provider?: string;
+  requiredRoles?: string[];
+  requiredPermissions?: string[];
+  requireAllRoles?: boolean;
+  requireAllPermissions?: boolean;
+}
+
+/**
+ * Authentication provider interface
+ */
+export interface AuthProvider {
+  verifyToken: (token: string, config: AuthConfig) => Promise<ApiUser>;
+  generateToken: (user: Partial<ApiUser>, config: AuthConfig) => Promise<{
+    token: string;
+    refreshToken?: string;
+    expiresAt: number;
+  }>;
+  refreshToken?: (refreshToken: string, config: AuthConfig) => Promise<{
+    token: string;
+    refreshToken?: string;
+    expiresAt: number;
+  }>;
+}
+
+/**
+ * Cache entry interface
+ */
+export interface CacheEntry<T> {
+  value: T;
+  expires: number;
+  createdAt: number;
+  tags?: string[];
+}
+
+/**
+ * Cache options interface
+ */
+export interface CacheOptions {
   enabled: boolean;
   ttl: number; // tiempo en segundos
-  key?: string | ((req: CustomRequest) => string);
-};
+  key: string | ((req: CustomRequest) => Promise<string>);
+  adapter?: string;
+  includeQuery?: boolean;
+  includeHeaders?: boolean;
+  headerNames?: string[];
+  varyByUser?: boolean;
+  tags?: string[];
+}
 
-export type RateLimitOptions = {
+/**
+ * Cache adapter interface
+ */
+export interface CacheAdapter {
+  get<T>(key: string): Promise<T | undefined>;
+  set<T>(key: string, value: T, options?: { ttl?: number; tags?: string[] }): Promise<void>;
+  delete(key: string): Promise<boolean>;
+  invalidate(pattern: string): Promise<void>;
+  invalidateByTag(tag: string): Promise<void>;
+  clear(): Promise<void>;
+}
+
+/**
+ * Cache store adapter interface (more specific than CacheAdapter)
+ */
+export interface CacheStoreAdapter extends CacheAdapter {
+  connect(): Promise<void>;
+  disconnect(): Promise<void>;
+  isConnected(): boolean;
+  getStats(): Promise<Record<string, any>>;
+}
+
+/**
+ * CORS options interface
+ */
+export interface CorsOptions {
+  origin: string | string[];
+  methods: string | string[];
+  headers: string | string[];
+  enabled: boolean;
+  credentials: boolean;
+  maxAge?: number;
+  exposedHeaders?: string | string[];
+  preflightSuccessStatus?: number;
+}
+
+/**
+ * Rate limit options interface
+ */
+export interface RateLimitOptions {
   enabled: boolean;
   limit: number; // peticiones por ventana
   window: number; // ventana en segundos
-  keyFn?: (req: CustomRequest) => string; // función para extraer la clave de rate limiting (default: IP)
-};
+  adapter?: string;
+  keyFn?: string | ((req: CustomRequest) => string);
+  keyGenerator?: (req: CustomRequest) => string;
+  name?: string;
+  varyByUser?: boolean;
+  varyByRoute?: boolean;
+  varyByMethod?: boolean;
+  message?: string;
+  statusCode?: number;
+}
 
-export type ApiConfig<T = any> = {
+/**
+ * Rate limit result interface
+ */
+export interface RateLimitResult {
+  limited: boolean;
+  remaining: number;
+  limit: number;
+  reset: number;
+  retryAfter: number;
+}
+
+/**
+ * Rate limit information stored in the request
+ */
+export interface RateLimitInfo {
+  limit: number;
+  remaining: number;
+  reset: number;
+  key: string;
+}
+
+/**
+ * Rate limit adapter interface
+ */
+export interface RateLimitAdapter {
+  increment(key: string, options: RateLimitOptions): Promise<RateLimitResult>;
+  get(key: string, options: RateLimitOptions): Promise<RateLimitResult>;
+  reset(key: string): Promise<void>;
+}
+
+/**
+ * Validation schema interface
+ */
+export interface ValidationSchema<T> {
+  validate: (data: any) => { value: T; error?: any };
+}
+
+/**
+ * Health check options interface
+ */
+export interface HealthCheckOptions {
+  enabled: boolean;
+  endpoint?: string;
+  checks?: Array<{
+    name: string;
+    check: () => Promise<boolean>;
+    critical?: boolean;
+  }>;
+  timeout?: number;
+}
+
+/**
+ * Metrics options interface
+ */
+export interface MetricsOptions {
+  enabled: boolean;
+  endpoint?: string;
+  headers?: string[];
+  tags?: string[];
+  includeHeaders?: boolean;
+  includeResponseTime?: boolean;
+  includePath?: boolean;
+  includeMethod?: boolean;
+  includeStatusCode?: boolean;
+  customDimensions?: (req: CustomRequest, res: CustomResponse) => Record<string, any>;
+}
+
+/**
+ * Logging options interface
+ */
+export interface LoggingOptions {
+  enabled: boolean;
+  level?: 'debug' | 'info' | 'warn' | 'error';
+  format?: 'json' | 'text';
+  transports?: Array<{
+    type: 'console' | 'file' | 'custom';
+    options?: Record<string, any>;
+  }>;
+  redactedFields?: string[];
+  includeBody?: boolean;
+  includeHeaders?: boolean;
+  includeQueryParams?: boolean;
+}
+
+/**
+ * API Configuration interface
+ */
+export interface ApiConfig<T = any> {
   handler: ApiHandler<T>;
-  auth?: {
-    required: boolean;
-    roles?: string[];
+  adapter?: string;
+  auth?: AuthOptions;
+  permissions?: {
+    requiredRoles?: string[];
+    requiredPermissions?: string[];
+    requireAllRoles?: boolean;
+    requireAllPermissions?: boolean;
   };
+  authProvider?: AuthProvider;
   validation?: {
     query?: ValidationSchema<any>;
     body?: ValidationSchema<any>;
     params?: ValidationSchema<any>;
   };
-  cache?: Promise<CacheOptions> | CacheOptions;
+  cache?: CacheOptions;
   rateLimit?: RateLimitOptions;
-  cors?: {
-    enabled: boolean;
-    origin?: string | string[];
-    methods?: string[];
-    credentials?: boolean;
-  };
+  cors?: CorsOptions;
   timeout?: number; // milisegundos
-  metrics?: boolean;
-};
+  metrics?: MetricsOptions;
+  logging?: LoggingOptions;
+  health?: HealthCheckOptions;
+}
+
+/**
+ * Middleware function type
+ */
+export type MiddlewareFunction = (
+  request: CustomRequest,
+  context: ApiContext,
+  next: () => Promise<CustomResponse>
+) => Promise<CustomResponse>;
